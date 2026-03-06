@@ -1,4 +1,4 @@
-using LinearAlgebra
+using LinearAlgebra, Distributions
 
 abstract type Target end
 
@@ -8,7 +8,7 @@ struct Innovation
 end
 
 struct Out
-    XX::Matrix{Float64}
+    XX::Union{Nothing, Matrix{Float64}}
     G::Vector{Int64}
     acc::Vector{Float64}
 end
@@ -93,7 +93,7 @@ end
 
 
 function inner_online_picard!(V::Target, O::Out, P::PicardState, W::Innovation, (Lo, Up), err::Float64)
-    N = size(O.XX,2)
+    N = size(W.ZZ,2) + 1
     P.Bc .= P.B
     K = Up - Lo + 1 
     P.Z[:, 1:K] = W.ZZ[:, Lo:Up]
@@ -105,7 +105,9 @@ function inner_online_picard!(V::Target, O::Out, P::PicardState, W::Innovation, 
     Ln = Lo + c
     # done sequentially
     P = solve_path!(P, K)
-    O.XX[:,Lo+1:Ln] = P.X[:, 2:c+1]
+    if O.XX != nothing
+        O.XX[:,Lo+1:Ln] = P.X[:, 2:c+1]
+    end
     O.acc[1] += sum(P.B[1:c])/(N-1)
     P = move_forward!(P, c, K)
     return  O, P, Ln
@@ -115,14 +117,18 @@ end
 
 
 
-function online_picard(V::Target, x0::Vector{Float64}, K::Int64, W::Innovation, err::Float64)
+function online_picard(V::Target, x0::Vector{Float64}, K::Int64, W::Innovation, err::Float64; save = false)
     d, N1 = size(W.ZZ)
     N = N1 + 1
     if d != length(x0)
         error("PROBLEM")
     end
-    O = Out(zeros(d, N), Vector{Int64}(), [0.0])
-    O.XX[:,1] = x0
+    if save
+        O = Out(zeros(d, N), Vector{Int64}(), [0.0])
+        O.XX[:,1] = x0
+    else
+        O = Out(nothing,  Vector{Int64}(), [0.0])
+    end
     P = PicardState(K, x0)
     Lo = 1
     perc = 10
@@ -140,19 +146,19 @@ function online_picard(V::Target, x0::Vector{Float64}, K::Int64, W::Innovation, 
     return O, W
 end
 
-function online_picard_rwm(V, x0::Vector{Float64}, h::Float64, K::Int64, N::Int64, err::Float64)
+function online_picard_rwm(V, x0::Vector{Float64}, h::Float64, K::Int64, N::Int64, err::Float64; save = false)
     d = length(x0)
     Z = randn(d, N-1)*h
     # @show var(Z, dims = 2)
     # error("")
     U = rand(N-1)
     W = Innovation(Z, U)
-    online_picard(V, x0, K, W, err)
+    online_picard(V, x0, K, W, err, save = save)
 end
 
 online_picard_rwm(V, x0, h, K, N) = online_picard_rwm(V, x0, h, K, N, 0.0)
 
-function online_picard_orwm(V, x0, h, K, N, err::Float64)
+function online_picard_orwm(V, x0, h, K, N, err::Float64; save = false)
     d = length(x0)
     Zi = randn(N-1)*sqrt(d)*h
     Z = zeros(d, N-1)
@@ -162,17 +168,11 @@ function online_picard_orwm(V, x0, h, K, N, err::Float64)
     end
     U = rand(N-1)
     W = Innovation(Z, U)
-    online_picard(V, x0, K, W, err)
+    online_picard(V, x0, K, W, err, save = save)
 end
 
 
-online_picard_orwm(V, x0, h, K, N) = online_picard_orwm(V, x0, h, K, N, 0.0)  
-
-
-
-
-
-
+online_picard_orwm(V, x0, h, K, N; save = false) = online_picard_orwm(V, x0, h, K, N, 0.0, save = save)  
 
 
 
